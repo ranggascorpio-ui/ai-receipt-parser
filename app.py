@@ -6,7 +6,9 @@ import pandas as pd
 import streamlit as st
 from PIL import Image
 import google.generativeai as genai
+from supabase import create_client
 
+# Konfigurasi Halaman
 st.set_page_config(
     page_title="BizReceipt AI | Invoice Intelligence",
     page_icon="💼",
@@ -27,19 +29,34 @@ section[data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px 
 """
 st.markdown(CSS_STYLE, unsafe_allow_html=True)
 
+# Inisialisasi Kredensial & Supabase Client
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", None)
+SUPABASE_URL = st.secrets.get("SUPABASE_URL", None)
+SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", None)
+
+@st.cache_resource
+def init_supabase():
+    if SUPABASE_URL and SUPABASE_KEY:
+        return create_client(SUPABASE_URL, SUPABASE_KEY)
+    return None
+
+supabase = init_supabase()
+
+# Inisialisasi Session State untuk Login & Data
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+if "user_email" not in st.session_state:
+    st.session_state["user_email"] = ""
+if "user_tier" not in st.session_state:
+    st.session_state["user_tier"] = "trial"
+if "quota_left" not in st.session_state:
+    st.session_state["quota_left"] = 10
 if "itemized_data" not in st.session_state:
     st.session_state["itemized_data"] = []
-
-if "trial_count" not in st.session_state:
-    st.session_state["trial_count"] = 0
-
 if "cs_messages" not in st.session_state:
     st.session_state["cs_messages"] = [
         {"role": "assistant", "content": "Halo! Ada yang bisa saya bantu seputar BizReceipt AI atau pembayaran via QRIS?"}
     ]
-
-MAX_TRIAL = 10
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", None)
 
 PROMPT_RECEIPT = """
 Ekstrak data struk ini ke format JSON murni:
@@ -70,7 +87,27 @@ SYS_CTX_CS = (
     "Jawab dengan ramah, sopan, dan ringkas."
 )
 
+# --- FUNGSI DATABASE & AUTH ---
+def fetch_user_data(email):
+    if not supabase:
+        return None
+    try:
+        res = supabase.table("users").select("*").eq("email", email).execute()
+        if res.data and len(res.data) > 0:
+            return res.data[0]
+    except Exception:
+        pass
+    return None
 
+def update_user_quota_in_db(email, new_quota):
+    if not supabase:
+        return
+    try:
+        supabase.table("users").update({"quota_left": new_quota}).eq("email", email).execute()
+    except Exception:
+        pass
+
+# --- FUNGSI PEMANGGILAN AI ---
 def call_gemini_api(api_key, contents, is_json=False):
     genai.configure(api_key=api_key)
     candidates = [
@@ -102,7 +139,6 @@ def call_gemini_api(api_key, contents, is_json=False):
             raise e
     raise last_err
 
-
 def parse_single_file(u_file, api_key):
     img = Image.open(u_file)
     resp = call_gemini_api(api_key, [img, PROMPT_RECEIPT], is_json=True)
@@ -127,44 +163,6 @@ def parse_single_file(u_file, api_key):
         })
     return rows
 
-
-def process_batch_files(uploaded_files, api_key):
-    if st.session_state["trial_count"] >= MAX_TRIAL:
-        st.error("🚫 Kuota 10x trial gratis telah habis. Silakan buka menu Kelola Langganan & QRIS.")
-        return
-    if not api_key:
-        st.error("⚠️ API Key belum dikonfigurasi di Secrets.")
-        return
-
-    success_count = 0
-    for u_file in uploaded_files:
-        if st.session_state["trial_count"] >= MAX_TRIAL:
-            st.warning("⚠️ Batas kuota trial tercapai.")
-            break
-        try:
-            new_rows = parse_single_file(u_file, api_key)
-            st.session_state["itemized_data"].extend(new_rows)
-            st.session_state["trial_count"] += 1
-            success_count += 1
-        except Exception as e:
-            st.warning(f"Gagal memproses {u_file.name}: {e}")
-
-    if success_count > 0:
-        sisa_now = MAX_TRIAL - st.session_state["trial_count"]
-        st.success(f"✨ Berhasil mengekstrak {success_count} dokumen! Sisa trial: {sisa_now} kali.")
-
-
-def get_cs_reply(user_query, api_key):
-    if not api_key:
-        return "Maaf, API Key belum dikonfigurasi di Secrets."
-    try:
-        full_p = f"{SYS_CTX_CS}\n\nUser: {user_query}"
-        resp = call_gemini_api(api_key, full_p, is_json=False)
-        return resp.text
-    except Exception as e:
-        return f"Maaf, kendala koneksi CS AI: {e}"
-
-
 def show_qris_image():
     try:
         st.image("qris.png.jpeg", use_container_width=True)
@@ -177,18 +175,91 @@ def show_qris_image():
     except Exception:
         st.warning("⚠️ Gambar QRIS belum ditemukan di GitHub.")
 
+# --- HALAMAN AUTENTIKASI (JIKA BELUM LOGIN) ---
+if not st.session_state["logged_in"]:
+    st.markdown('<p class="main-header">💼 BizReceipt AI | Portal Akun</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Silakan masuk atau daftar akun untuk mulai menggunakan kecerdasan buatan ekstraksi struk.</p>', unsafe_allow_html=True)
+    
+    tab_login, tab_register = st.tabs(["🔑 Masuk (Login)", "📝 Daftar Akun Baru (Register)"])
+    
+    with tab_login:
+        st.subheader("Masuk ke Akun Anda")
+        with st.form("login_form"):
+            email_in = st.text_input("Email")
+            pass_in = st.text_input("Password", type="password")
+            submit_login = st.form_submit_button("Masuk", type="primary")
+            
+            if submit_login:
+                if not email_in or not pass_in:
+                    st.error("Email dan Password wajib diisi.")
+                elif not supabase:
+                    st.error("Koneksi Database Supabase belum dikonfigurasi di Secrets.")
+                else:
+                    try:
+                        # Cek auth supabase
+                        auth_res = supabase.auth.sign_in_with_password({"email": email_in, "password": pass_in})
+                        if auth_res.user:
+                            user_data = fetch_user_data(email_in)
+                            if user_data:
+                                st.session_state["logged_in"] = True
+                                st.session_state["user_email"] = email_in
+                                st.session_state["user_tier"] = user_data.get("tier", "trial")
+                                st.session_state["quota_left"] = user_data.get("quota_left", 10)
+                                st.success("Login berhasil!")
+                                st.rerun()
+                            else:
+                                st.error("Data profil pengguna tidak ditemukan di database.")
+                    except Exception as e:
+                        st.error(f"Login gagal: Periksa kembali email dan password Anda. ({e})")
 
-# Sidebar Navigasi
+    with tab_register:
+        st.subheader("Daftar Akun Baru (Bonus 10x Kuota Trial)")
+        with st.form("register_form"):
+            email_reg = st.text_input("Email Aktif")
+            pass_reg = st.text_input("Buat Password", type="password")
+            submit_reg = st.form_submit_button("Daftar Sekarang", type="primary")
+            
+            if submit_reg:
+                if not email_reg or not pass_reg:
+                    st.error("Email dan Password wajib diisi.")
+                elif not supabase:
+                    st.error("Koneksi Database Supabase belum dikonfigurasi di Secrets.")
+                else:
+                    try:
+                        # Buat akun di Supabase Auth
+                        auth_res = supabase.auth.sign_up({"email": email_reg, "password": pass_reg})
+                        if auth_res.user:
+                            # Masukkan ke tabel public.users
+                            supabase.table("users").insert({
+                                "email": email_reg,
+                                "tier": "trial",
+                                "quota_left": 10
+                            }).execute()
+                            st.success("Pendaftaran berhasil! Silakan pindah ke tab 'Masuk (Login)' untuk masuk.")
+                    except Exception as e:
+                        st.error(f"Pendaftaran gagal (Email mungkin sudah terdaftar): {e}")
+    st.stop()
+
+# --- SETELAH LOGIN BERHASIL ---
+# Sinkronisasi sisa kuota terbaru dari database
+db_profile = fetch_user_data(st.session_state["user_email"])
+if db_profile:
+    st.session_state["quota_left"] = db_profile.get("quota_left", 0)
+    st.session_state["user_tier"] = db_profile.get("tier", "trial")
+
+# Sidebar Navigasi & Profil
 st.sidebar.markdown("### 🏢 BizReceipt AI")
-st.sidebar.caption("Solusi Ekstraksi Dokumen Finansial Otomatis")
+st.sidebar.caption(f"Akun: **{st.session_state['user_email']}**")
 st.sidebar.markdown("---")
 
-sisa_trial = max(0, MAX_TRIAL - st.session_state["trial_count"])
+sisa_kuota = st.session_state["quota_left"]
 st.sidebar.markdown("#### Status Akun Anda")
-if sisa_trial > 0:
-    st.sidebar.info(f"✨ **Mode Trial Aktif**\n\nSisa Kuota Gratis: **{sisa_trial} dari {MAX_TRIAL} dokumen**")
-else:
-    st.sidebar.warning("⚠️ **Kuota Trial Habis!**\n\nSilakan bayar via QRIS untuk memperpanjang akses.")
+st.sidebar.info(f"✨ **Paket: {st.session_state['user_tier'].upper()}**\n\nSisa Kuota: **{sisa_kuota} dokumen**")
+
+if st.sidebar.button("🚪 Keluar (Logout)", use_container_width=True):
+    st.session_state["logged_in"] = False
+    st.session_state["user_email"] = ""
+    st.rerun()
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("#### Navigasi Menu")
@@ -199,7 +270,6 @@ app_mode = st.sidebar.radio(
 )
 st.sidebar.markdown("---")
 st.sidebar.caption("© 2026 BizReceipt Intelligence.")
-
 
 # Halaman 1: Parser Utama
 if app_mode == "🚀 Parser Utama":
@@ -213,10 +283,9 @@ if app_mode == "🚀 Parser Utama":
         accept_multiple_files=True
     )
 
-    sisa = max(0, MAX_TRIAL - st.session_state["trial_count"])
     col_info.info(
-        f"💡 **Info Trial & Kualitas**\n\n"
-        f"🎁 Sisa Gratis: **{sisa} kali**\n"
+        f"💡 **Info Kuota & Kualitas**\n\n"
+        f"🎁 Sisa Kuota Anda: **{st.session_state['quota_left']} kali**\n"
         "1. Foto struk harus terang & jelas.\n"
         "2. Mendukung struk cetak & tulisan tangan.\n"
         "3. Edit hasil langsung di tabel sebelum unduh."
@@ -224,8 +293,31 @@ if app_mode == "🚀 Parser Utama":
 
     if uploaded_files:
         if st.button("🚀 Proses Dokumen", type="primary"):
-            with st.spinner("🤖 AI sedang memindai dokumen..."):
-                process_batch_files(uploaded_files, GEMINI_API_KEY)
+            if st.session_state["quota_left"] <= 0:
+                st.error("🚫 Kuota Anda telah habis. Silakan lakukan perpanjangan paket di menu **Kelola Langganan & QRIS**.")
+            elif not GEMINI_API_KEY:
+                st.error("⚠️ API Key belum dikonfigurasi di Secrets.")
+            else:
+                with st.spinner("🤖 AI sedang memindai dokumen..."):
+                    success_count = 0
+                    for u_file in uploaded_files:
+                        if st.session_state["quota_left"] <= 0:
+                            st.warning("⚠️ Batas kuota Anda tercapai di tengah proses.")
+                            break
+                        try:
+                            new_rows = parse_single_file(u_file, GEMINI_API_KEY)
+                            st.session_state["itemized_data"].extend(new_rows)
+                            
+                            # Kurangi kuota di database Supabase
+                            st.session_state["quota_left"] -= 1
+                            update_user_quota_in_db(st.session_state["user_email"], st.session_state["quota_left"])
+                            
+                            success_count += 1
+                        except Exception as e:
+                            st.warning(f"Gagal memproses {u_file.name}: {e}")
+
+                    if success_count > 0:
+                        st.success(f"✨ Berhasil mengekstrak {success_count} dokumen! Sisa kuota Anda: {st.session_state['quota_left']} kali.")
 
     if len(st.session_state["itemized_data"]) > 0:
         st.markdown("---")
@@ -311,9 +403,9 @@ elif app_mode == "💳 Kelola Langganan & QRIS":
 
     with col_q2:
         st.markdown("### 💬 Konfirmasi Pembayaran")
-        st.write("Sudah transfer via QRIS? Klik tombol di bawah untuk mengirim bukti pembayaran ke Telegram Admin.")
+        st.write("Sudah transfer via QRIS? Klik tombol di bawah untuk mengirim bukti pembayaran ke Telegram Admin beserta email akun Anda.")
         tg_user = "MasterGenerative_bot"
-        tg_msg = "Halo Admin, saya sudah bayar langganan BizReceipt AI via QRIS."
+        tg_msg = f"Halo Admin, saya sudah bayar langganan BizReceipt AI via QRIS. Email akun saya: {st.session_state['user_email']}"
         tg_url = f"https://t.me/{tg_user}?text={urllib.parse.quote(tg_msg)}"
         st.link_button("✈️ Konfirmasi via Telegram", url=tg_url, type="primary", use_container_width=True)
 
@@ -334,6 +426,26 @@ elif app_mode == "💬 Tanya CS AI":
 
         with st.chat_message("assistant"):
             with st.spinner("Asisten CS sedang mengetik..."):
-                reply = get_cs_reply(user_query, GEMINI_API_KEY)
+                try:
+                    if not GEMINI_API_KEY:
+                        reply = "Maaf, API Key belum dikonfigurasi."
+                    else:
+                        sys_ctx = (
+                            f"Anda adalah CS Virtual aplikasi 'BizReceipt AI'. "
+                            f"Email user saat ini: {st.session_state['user_email']}.\n"
+                            "- Trial gratis: 10x proses.\n"
+                            "- Paket Starter: Rp 99.000/bln (150 struk).\n"
+                            "- Paket Business Pro: Rp 249.000/bln (600 struk).\n"
+                            "- Paket Enterprise: Rp 599.000/bln (Unlimited).\n"
+                            "- Cara Bayar: Buka menu 'Kelola Langganan & QRIS', scan QRIS GoPay Merchant, "
+                            "lalu klik tombol Konfirmasi via Telegram dengan menyertakan email akun.\n"
+                            "Jawab dengan ramah, sopan, dan ringkas."
+                        )
+                        full_p = f"{sys_ctx}\n\nUser: {user_query}"
+                        resp = call_gemini_api(GEMINI_API_KEY, full_p, is_json=False)
+                        reply = resp.text
+                except Exception as e:
+                    reply = f"Maaf, kendala koneksi CS AI: {e}"
+
                 st.markdown(reply)
                 st.session_state["cs_messages"].append({"role": "assistant", "content": reply})
