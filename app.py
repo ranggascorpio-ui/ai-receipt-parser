@@ -1,5 +1,5 @@
 """
-Aplikasi Web AI Struk & Faktur Parser (Versi SaaS Enterprise Komersial + Trial + AI CS Bot)
+Aplikasi Web AI Struk & Faktur Parser (Versi SaaS Enterprise Komersial + Trial + AI CS + QRIS & Telegram)
 Framework: Streamlit
 File: app.py
 """
@@ -7,6 +7,7 @@ File: app.py
 from datetime import datetime
 import io
 import json
+import urllib.parse
 import pandas as pd
 import streamlit as st
 from PIL import Image
@@ -83,7 +84,7 @@ if "trial_count" not in st.session_state:
 
 if "cs_messages" not in st.session_state:
     st.session_state["cs_messages"] = [
-        {"role": "assistant", "content": "Halo! Ada yang bisa saya bantu seputar penggunaan BizReceipt AI atau paket berlangganan?"}
+        {"role": "assistant", "content": "Halo! Ada yang bisa saya bantu seputar penggunaan BizReceipt AI atau cara pembayaran berlangganan via QRIS?"}
     ]
 
 MAX_TRIAL = 10  # Batas maksimal uji coba gratis
@@ -105,13 +106,13 @@ with st.sidebar:
     if sisa_trial > 0:
         st.info(f"✨ **Mode Trial Aktif**\n\nSisa Kuota Gratis: **{sisa_trial} dari {MAX_TRIAL} dokumen**")
     else:
-        st.warning("⚠️ **Kuota Trial Habis!**\n\nSilakan berlangganan untuk melanjutkan akses.")
+        st.warning("⚠️ **Kuota Trial Habis!**\n\nSilakan lakukan pembayaran via QRIS untuk memperpanjang akses.")
     
     st.markdown("---")
     st.markdown("#### Navigasi Menu")
     app_mode = st.radio(
         "Pilih Menu",
-        ["🚀 Parser Utama", "📚 Riwayat & Panduan", "💳 Kelola Langganan", "💬 Tanya CS AI"],
+        ["🚀 Parser Utama", "📚 Riwayat & Panduan", "💳 Kelola Langganan & QRIS", "💬 Tanya CS AI"],
         label_visibility="collapsed"
     )
     
@@ -158,7 +159,7 @@ if app_mode == "🚀 Parser Utama":
         
         if process_btn:
             if st.session_state["trial_count"] >= MAX_TRIAL:
-                st.error("🚫 Maaf, jatah 10x uji coba gratis Anda telah habis. Silakan pilih paket langganan di menu **Kelola Langganan**.")
+                st.error("🚫 Maaf, jatah 10x uji coba gratis Anda telah habis. Silakan lakukan pembayaran paket di menu **Kelola Langganan & QRIS**.")
             elif not GEMINI_API_KEY:
                 st.error("⚠️ Sistem API Key belum terkonfigurasi di server.")
             else:
@@ -313,11 +314,11 @@ elif app_mode == "📚 Riwayat & Panduan":
         """)
 
 # -------------------------------------------------------------
-# HALAMAN 3: KELOLA LANGGANAN
+# HALAMAN 3: KELOLA LANGGANAN & PEMBAYARAN QRIS
 # -------------------------------------------------------------
-elif app_mode == "💳 Kelola Langganan":
-    st.markdown('<p class="main-header">💳 Paket & Langganan Layanan</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Pilih skema berlangganan yang sesuai dengan skala bisnis atau perusahaan Anda.</p>', unsafe_allow_html=True)
+elif app_mode == "💳 Kelola Langganan & QRIS":
+    st.markdown('<p class="main-header">💳 Paket Berlangganan & Pembayaran QRIS</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Pilih paket layanan Anda, lakukan pembayaran via QRIS GoPay Merchant, dan konfirmasikan secara instan via Telegram.</p>', unsafe_allow_html=True)
     st.markdown("---")
     
     col_plan1, col_plan2, col_plan3 = st.columns(3)
@@ -329,8 +330,6 @@ elif app_mode == "💳 Kelola Langganan":
             st.caption("Cocok untuk UMKM dan pencatatan pribadi.")
             st.markdown("---")
             st.markdown("✅ 150 Struk / bulan\n✅ Ekspor Excel & CSV\n✅ Support Standar")
-            st.markdown("")
-            st.button("Pilih Paket Starter", use_container_width=True, key="p1")
             
     with col_plan2:
         with st.container(border=True):
@@ -339,8 +338,6 @@ elif app_mode == "💳 Kelola Langganan":
             st.caption("Solusi optimal untuk toko retail & agensi.")
             st.markdown("---")
             st.markdown("⭐ **Terlaris**\n✅ 600 Struk / bulan\n✅ Multi-user / Tim\n✅ Prioritas Pemrosesan AI")
-            st.markdown("")
-            st.button("Pilih Paket Pro", type="primary", use_container_width=True, key="p2")
             
     with col_plan3:
         with st.container(border=True):
@@ -349,8 +346,44 @@ elif app_mode == "💳 Kelola Langganan":
             st.caption("Untuk kebutuhan korporat skala besar.")
             st.markdown("---")
             st.markdown("✅ **Unlimited** Struk\n✅ Custom API Integration\n✅ Dedicated Account Manager")
-            st.markdown("")
-            st.button("Hubungi Sales", use_container_width=True, key="p3")
+
+    st.markdown("---")
+    
+    # Bagian Instruksi Pembayaran QRIS GoPay Merchant & Telegram
+    with st.container(border=True):
+        st.subheader("📲 Cara Pembayaran via QRIS (GoPay Merchant)")
+        st.markdown("""
+        1. Pilih paket langganan yang Anda inginkan di atas (Starter, Pro, atau Enterprise).
+        2. Buka aplikasi M-Banking (BCA, Mandiri, BSI, BRI, dll) atau E-Wallet (GoPay, OVO, DANA, ShopeePay) Anda.
+        3. Scan QRIS resmi merchant kami di bawah ini, atau transfer sesuai nominal paket.
+        4. Setelah transfer berhasil, klik tombol konfirmasi di bawah untuk mengirimkan bukti transfer via Telegram admin.
+        """)
+        
+        col_qris1, col_qris2 = st.columns([1, 1], gap="large")
+        with col_qris1:
+            st.info("📌 **QRIS Resmi BizReceipt AI / GoPay Merchant**")
+            try:
+                st.image("qris.png", caption="Scan pakai aplikasi apa saja (BCA, Livin, GoPay, OVO, DANA, dll)", use_container_width=True)
+            except Exception:
+                st.warning("⚠️ File gambar QRIS (`qris.png`) belum diunggah ke repository GitHub Anda. Silakan unggah file gambar QRIS Anda dengan nama `qris.png`.")
+                
+        with col_qris2:
+            st.markdown("### 💬 Konfirmasi Pembayaran Instan")
+            st.markdown("Sudah melakukan pembayaran? Klik tombol di bawah untuk mengirimkan bukti transfer (*screenshot*) beserta username akun Anda ke Telegram admin.")
+            
+            # Ganti dengan username Telegram Anda (tanpa tanda @)
+            telegram_username = "UsernameTelegramAnda" 
+            tg_message = "Halo Admin, saya sudah melakukan pembayaran berlangganan BizReceipt AI via QRIS. Berikut bukti transfernya:"
+            encoded_msg = urllib.parse.quote(tg_message)
+            tg_link = f"https://t.me/{telegram_username}?text={encoded_msg}"
+            
+            st.markdown(f"""
+                <a href="{tg_link}" target="_blank">
+                    <button style="background-color: #0088cc; color: white; padding: 12px 20px; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%;">
+                        ✈️ Konfirmasi Pembayaran via Telegram
+                    </button>
+                </a>
+            """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
 # HALAMAN 4: TANYA CS AI (Asisten Virtual Pintar)
@@ -360,18 +393,15 @@ elif app_mode == "💬 Tanya CS AI":
     st.markdown('<p class="sub-header">Tanyakan apa saja seputar cara penggunaan aplikasi, kendala scan, atau info paket berlangganan kepada asisten virtual kami.</p>', unsafe_allow_html=True)
     st.markdown("---")
 
-    # Menampilkan riwayat chat
     for message in st.session_state["cs_messages"]:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # Input chat pengguna
-    if user_query := st.chat_input("Ketik pertanyaan Anda di sini... (Contoh: Bagaimana cara upgrade paket?)"):
+    if user_query := st.chat_input("Ketik pertanyaan Anda di sini... (Contoh: Bagaimana cara bayar via QRIS?)"):
         st.session_state["cs_messages"].append({"role": "user", "content": user_query})
         with st.chat_message("user"):
             st.markdown(user_query)
 
-        # Generate jawaban menggunakan Gemini API pribadi
         with st.chat_message("assistant"):
             with st.spinner("Asisten CS sedang mengetik..."):
                 try:
@@ -379,17 +409,17 @@ elif app_mode == "💬 Tanya CS AI":
                         reply = "Maaf, sistem API Key belum terkonfigurasi dengan benar."
                     else:
                         genai.configure(api_key=GEMINI_API_KEY)
-                        # Gunakan model teks cerdas untuk CS Bot
                         cs_model = genai.GenerativeModel('gemini-1.5-flash')
                         
                         system_context = """
                         Anda adalah Customer Service Virtual yang ramah, profesional, dan membantu untuk aplikasi SaaS bernama 'BizReceipt AI'. 
                         Aplikasi ini adalah platform berbasis AI untuk mengekstrak struk dan faktur belanja menjadi laporan Excel/CSV.
-                        Informasi Layanan:
+                        Informasi Layanan & Harga:
                         - Ada mode trial gratis 10x pemrosesan.
                         - Paket Starter: Rp 99.000/bulan (150 struk).
                         - Paket Business Pro: Rp 249.000/bulan (600 struk).
                         - Paket Enterprise: Rp 599.000/bulan (Unlimited).
+                        - Pembayaran via QRIS GoPay Merchant yang tertera di menu Kelola Langganan & QRIS, lalu konfirmasi pembayaran via Telegram admin.
                         Jawablah dengan bahasa Indonesia yang sopan, ramah, dan membantu.
                         """
                         
