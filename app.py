@@ -167,8 +167,8 @@ if app_mode == "🚀 Parser Utama":
                     try:
                         genai.configure(api_key=GEMINI_API_KEY)
                         model = genai.GenerativeModel(
-                            model_name='gemini-1.5-flash',
-                            generation_config={"response_mime_type": "application/json"}
+                        model_name='gemini-1.5-flash',
+                        generation_config={"response_mime_type": "application/json"}
                         )
                         
                         prompt = """
@@ -409,7 +409,7 @@ elif app_mode == "💬 Tanya CS AI":
                         reply = "Maaf, sistem API Key belum terkonfigurasi dengan benar."
                     else:
                         genai.configure(api_key=GEMINI_API_KEY)
-                        cs_model = genai.GenerativeModel('gemini-1.5-pro')
+                        cs_model = genai.GenerativeModel('gemini-1.5-flash')
                         
                         system_context = """
                         Anda adalah Customer Service Virtual yang ramah, profesional, dan membantu untuk aplikasi SaaS bernama 'BizReceipt AI'. 
