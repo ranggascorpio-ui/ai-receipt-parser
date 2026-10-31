@@ -409,7 +409,7 @@ elif app_mode == "💬 Tanya CS AI":
                         reply = "Maaf, sistem API Key belum terkonfigurasi dengan benar."
                     else:
                         genai.configure(api_key=GEMINI_API_KEY)
-                        cs_model = genai.GenerativeModel('gemini-1.5-flash')
+                        cs_model = genai.GenerativeModel('gemini-1.5-pro')
                         
                         system_context = """
                         Anda adalah Customer Service Virtual yang ramah, profesional, dan membantu untuk aplikasi SaaS bernama 'BizReceipt AI'. 
