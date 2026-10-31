@@ -1,5 +1,5 @@
 """
-Aplikasi Web AI Struk & Faktur Parser (Versi SaaS Enterprise Komersial)
+Aplikasi Web AI Struk & Faktur Parser (Versi SaaS Enterprise Komersial + Trial 10x)
 Framework: Streamlit
 File: app.py
 """
@@ -20,26 +20,27 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Kustomisasi CSS Tingkat Lanjut untuk Estetika SaaS Komersial Premium
+# Kustomisasi CSS Tingkat Lanjut (Header Lebih Besar & Estetika SaaS)
 st.markdown("""
     <style>
-    /* Mengatur latar belakang utama agar tidak terlalu polos */
+    /* Latar belakang modern */
     .stApp {
         background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
     }
     
-    /* Header Utama */
+    /* Header Utama dibuat jauh lebih besar dan mencolok */
     .main-header {
-        font-size: 2.25rem;
+        font-size: 2.8rem !important;
         font-weight: 800;
         color: #0f172a;
         margin-bottom: 0.2rem;
-        letter-spacing: -0.025em;
+        letter-spacing: -0.03em;
+        line-height: 1.2;
     }
     .sub-header {
-        font-size: 1.05rem;
+        font-size: 1.15rem;
         color: #475569;
-        margin-bottom: 1.5rem;
+        margin-bottom: 2rem;
     }
     
     /* Kartu & Container kustom */
@@ -73,17 +74,30 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+# Inisialisasi Session State untuk Data & Sistem Trial (10x Gratis)
+if "itemized_data" not in st.session_state:
+    st.session_state["itemized_data"] = []
+
+if "trial_count" not in st.session_state:
+    st.session_state["trial_count"] = 0  # Mulai dari 0 penggunaan
+
+MAX_TRIAL = 10  # Batas maksimal uji coba gratis
+
 # -------------------------------------------------------------
-# SIDEBAR: Navigasi & Info Akun / Langganan (SaaS Ready)
+# SIDEBAR: Navigasi & Status Kuota Trial / Akun
 # -------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🏢 BizReceipt AI")
     st.caption("Solusi Ekstraksi Dokumen Finansial Otomatis")
     st.markdown("---")
     
-    # Status Akun Pengguna (Simulasi SaaS Tier)
-    st.markdown("#### Status Langganan")
-    st.info("⭐ **Paket: Enterprise Pro**\n\nStatus: Aktif\nSisa Kuota: **Unlimited / Sesuai API**")
+    # Widget Status Kuota Trial di Sidebar
+    sisa_trial = max(0, MAX_TRIAL - st.session_state["trial_count"])
+    st.markdown("#### Status Akun Anda")
+    if sisa_trial > 0:
+        st.info(f"✨ **Mode Trial Aktif**\n\nSisa Kuota Gratis: **{sisa_trial} dari {MAX_TRIAL} dokumen**")
+    else:
+        st.warning("⚠️ **Kuota Trial Habis!**\n\nSilakan berlangganan untuk melanjutkan akses tanpa batas.")
     
     st.markdown("---")
     st.markdown("#### Navigasi Menu")
@@ -99,17 +113,13 @@ with st.sidebar:
 # Mengambil API Key secara aman dari Streamlit Secrets
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", None)
 
-# Inisialisasi Session State
-if "itemized_data" not in st.session_state:
-    st.session_state["itemized_data"] = []
-
 # -------------------------------------------------------------
 # HALAMAN 1: PARSER UTAMA
 # -------------------------------------------------------------
 if app_mode == "🚀 Parser Utama":
-    # Header Utama Platform
+    # Header Utama Platform (Diperbesar & Lebih Menonjol)
     st.markdown('<p class="main-header">💼 AI Receipt & Invoice Intelligence</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Ubah dokumen struk, nota, atau faktur fisik/digital menjadi laporan tabel akuntansi terstruktur secara instan.</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Ubah dokumen struk, nota, atau faktur fisik/digital menjadi laporan tabel akuntansi terstruktur secara instan menggunakan kecerdasan buatan.</p>', unsafe_allow_html=True)
     st.markdown("")
 
     # Layout Kolom dengan Kontainer Profesional
@@ -129,8 +139,9 @@ if app_mode == "🚀 Parser Utama":
 
     with col_info:
         with st.container(border=True):
-            st.subheader("💡 Standar Kualitas")
+            st.subheader("💡 Informasi Trial & Kualitas")
             st.markdown(
+                f"🎁 **Uji Coba Gratis:** Anda memiliki sisa **{max(0, MAX_TRIAL - st.session_state['trial_count'])} kali** pemrosesan gratis.\n\n"
                 "1. **Kejelasan:** Pastikan foto struk terang & tidak blur.\n"
                 "2. **Fleksibel:** Mendukung cetakan termal POS & **tulisan tangan**.\n"
                 "3. **Audit Data:** Validasi ulang langsung di tabel sebelum diekspor."
@@ -144,7 +155,10 @@ if app_mode == "🚀 Parser Utama":
             process_btn = st.button("🚀 Proses Dokumen", type="primary", use_container_width=True)
         
         if process_btn:
-            if not GEMINI_API_KEY:
+            # Cek apakah kuota trial sudah habis
+            if st.session_state["trial_count"] >= MAX_TRIAL:
+                st.error("🚫 Maaf, jatah 10x uji coba gratis Anda telah habis. Silakan pilih paket langganan di menu **Kelola Langganan** untuk melanjutkan.")
+            elif not GEMINI_API_KEY:
                 st.error("⚠️ Sistem API Key belum terkonfigurasi dengan benar di server.")
             else:
                 with st.spinner("🤖 AI sedang memindai rincian transaksi, pajak, dan item belanja..."):
@@ -175,6 +189,11 @@ if app_mode == "🚀 Parser Utama":
                         
                         success_count = 0
                         for uploaded_file in uploaded_files:
+                            # Cek batas trial per file
+                            if st.session_state["trial_count"] >= MAX_TRIAL:
+                                st.warning("⚠️ Batas kuota trial tercapai di tengah proses. Beberapa file mungkin tidak diproses.")
+                                break
+
                             try:
                                 image = Image.open(uploaded_file)
                                 response = model.generate_content([image, prompt])
@@ -199,12 +218,15 @@ if app_mode == "🚀 Parser Utama":
                                         "Total Harga": int(total_harga)
                                     }
                                     st.session_state["itemized_data"].append(row_item)
+                                
+                                # Tambah hitungan trial berhasil
+                                st.session_state["trial_count"] += 1
                                 success_count += 1
                             except Exception as e:
                                 st.warning(f"Gagal memproses file {uploaded_file.name}: {str(e)}")
                         
                         if success_count > 0:
-                            st.success(f"✨ Berhasil mengekstrak {success_count} dokumen secara presisi!")
+                            st.success(f"✨ Berhasil mengekstrak {success_count} dokumen! Sisa kuota trial Anda: {MAX_TRIAL - st.session_state['trial_count']} kali.")
                     except Exception as ex:
                         st.error(f"Gagal terhubung ke layanan AI: {str(ex)}")
 
@@ -283,7 +305,7 @@ elif app_mode == "📚 Riwayat & Panduan":
         st.subheader("🎯 Tips Mendapatkan Hasil Akurat 99%")
         st.markdown("""
         * **Pencahayaan Cukup:** Hindari bayangan tangan atau benda menutupi teks penting pada struk.
-        * **Fokus Kamera:** Pastikan angka total dan rincian item tidak buram (*blurry*).
+        * **Fokus Kamera:** Pastikan angka total dan rincian item tidak blur (*blurry*).
         * **Format Dukungan:** Sistem mendukung gambar beresolusi tinggi (PNG, JPG, JPEG) hasil foto kamera ponsel maupun tangkapan layar digital (*e-receipt*).
         """)
         
@@ -299,7 +321,7 @@ elif app_mode == "📚 Riwayat & Panduan":
 # -------------------------------------------------------------
 elif app_mode == "💳 Kelola Langganan":
     st.markdown('<p class="main-header">💳 Paket & Langganan Layanan</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Pilih skema berlangganan yang sesuai dengan skala bisnis atau perusahaan Anda.</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Pilih skema berlangganan yang sesuai dengan skala bisnis atau perusahaan Anda setelah masa trial habis.</p>', unsafe_allow_html=True)
     st.markdown("---")
     
     col_plan1, col_plan2, col_plan3 = st.columns(3)
