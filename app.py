@@ -1,5 +1,5 @@
 """
-Aplikasi Web AI Struk & Faktur Parser (Versi SaaS Enterprise Komersial + Trial 10x)
+Aplikasi Web AI Struk & Faktur Parser (Versi SaaS Enterprise Komersial + Trial + AI CS Bot)
 Framework: Streamlit
 File: app.py
 """
@@ -20,7 +20,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Kustomisasi CSS Tingkat Lanjut (Header Lebih Besar & Estetika SaaS)
+# Kustomisasi CSS Tingkat Lanjut (Header Besar & Estetika SaaS)
 st.markdown("""
     <style>
     /* Latar belakang modern */
@@ -28,7 +28,7 @@ st.markdown("""
         background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
     }
     
-    /* Header Utama dibuat jauh lebih besar dan mencolok */
+    /* Header Utama */
     .main-header {
         font-size: 2.8rem !important;
         font-weight: 800;
@@ -74,55 +74,58 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Inisialisasi Session State untuk Data & Sistem Trial (10x Gratis)
+# Inisialisasi Session State
 if "itemized_data" not in st.session_state:
     st.session_state["itemized_data"] = []
 
 if "trial_count" not in st.session_state:
     st.session_state["trial_count"] = 0  # Mulai dari 0 penggunaan
 
+if "cs_messages" not in st.session_state:
+    st.session_state["cs_messages"] = [
+        {"role": "assistant", "content": "Halo! Ada yang bisa saya bantu seputar penggunaan BizReceipt AI atau paket berlangganan?"}
+    ]
+
 MAX_TRIAL = 10  # Batas maksimal uji coba gratis
 
+# Mengambil API Key secara aman dari Streamlit Secrets
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", None)
+
 # -------------------------------------------------------------
-# SIDEBAR: Navigasi & Status Kuota Trial / Akun
+# SIDEBAR: Navigasi, Status Trial, & AI CS Bot Pintar
 # -------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🏢 BizReceipt AI")
     st.caption("Solusi Ekstraksi Dokumen Finansial Otomatis")
     st.markdown("---")
     
-    # Widget Status Kuota Trial di Sidebar
+    # Widget Status Kuota Trial
     sisa_trial = max(0, MAX_TRIAL - st.session_state["trial_count"])
     st.markdown("#### Status Akun Anda")
     if sisa_trial > 0:
         st.info(f"✨ **Mode Trial Aktif**\n\nSisa Kuota Gratis: **{sisa_trial} dari {MAX_TRIAL} dokumen**")
     else:
-        st.warning("⚠️ **Kuota Trial Habis!**\n\nSilakan berlangganan untuk melanjutkan akses tanpa batas.")
+        st.warning("⚠️ **Kuota Trial Habis!**\n\nSilakan berlangganan untuk melanjutkan akses.")
     
     st.markdown("---")
     st.markdown("#### Navigasi Menu")
     app_mode = st.radio(
         "Pilih Menu",
-        ["🚀 Parser Utama", "📚 Riwayat & Panduan", "💳 Kelola Langganan"],
+        ["🚀 Parser Utama", "📚 Riwayat & Panduan", "💳 Kelola Langganan", "💬 Tanya CS AI"],
         label_visibility="collapsed"
     )
     
     st.markdown("---")
     st.markdown("<p style='font-size: 0.8rem; color: #94a3b8;'>© 2026 BizReceipt Intelligence. All rights reserved.</p>", unsafe_allow_html=True)
 
-# Mengambil API Key secara aman dari Streamlit Secrets
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", None)
-
 # -------------------------------------------------------------
 # HALAMAN 1: PARSER UTAMA
 # -------------------------------------------------------------
 if app_mode == "🚀 Parser Utama":
-    # Header Utama Platform (Diperbesar & Lebih Menonjol)
     st.markdown('<p class="main-header">💼 AI Receipt & Invoice Intelligence</p>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Ubah dokumen struk, nota, atau faktur fisik/digital menjadi laporan tabel akuntansi terstruktur secara instan menggunakan kecerdasan buatan.</p>', unsafe_allow_html=True)
     st.markdown("")
 
-    # Layout Kolom dengan Kontainer Profesional
     col_upload, col_info = st.columns([2, 1], gap="large")
 
     with col_upload:
@@ -147,7 +150,6 @@ if app_mode == "🚀 Parser Utama":
                 "3. **Audit Data:** Validasi ulang langsung di tabel sebelum diekspor."
             )
 
-    # Tombol Proses & Logika AI
     if uploaded_files:
         st.markdown("")
         col_btn1, col_btn2 = st.columns([1, 4])
@@ -155,11 +157,10 @@ if app_mode == "🚀 Parser Utama":
             process_btn = st.button("🚀 Proses Dokumen", type="primary", use_container_width=True)
         
         if process_btn:
-            # Cek apakah kuota trial sudah habis
             if st.session_state["trial_count"] >= MAX_TRIAL:
-                st.error("🚫 Maaf, jatah 10x uji coba gratis Anda telah habis. Silakan pilih paket langganan di menu **Kelola Langganan** untuk melanjutkan.")
+                st.error("🚫 Maaf, jatah 10x uji coba gratis Anda telah habis. Silakan pilih paket langganan di menu **Kelola Langganan**.")
             elif not GEMINI_API_KEY:
-                st.error("⚠️ Sistem API Key belum terkonfigurasi dengan benar di server.")
+                st.error("⚠️ Sistem API Key belum terkonfigurasi di server.")
             else:
                 with st.spinner("🤖 AI sedang memindai rincian transaksi, pajak, dan item belanja..."):
                     try:
@@ -189,9 +190,8 @@ if app_mode == "🚀 Parser Utama":
                         
                         success_count = 0
                         for uploaded_file in uploaded_files:
-                            # Cek batas trial per file
                             if st.session_state["trial_count"] >= MAX_TRIAL:
-                                st.warning("⚠️ Batas kuota trial tercapai di tengah proses. Beberapa file mungkin tidak diproses.")
+                                st.warning("⚠️ Batas kuota trial tercapai di tengah proses.")
                                 break
 
                             try:
@@ -219,24 +219,21 @@ if app_mode == "🚀 Parser Utama":
                                     }
                                     st.session_state["itemized_data"].append(row_item)
                                 
-                                # Tambah hitungan trial berhasil
                                 st.session_state["trial_count"] += 1
                                 success_count += 1
                             except Exception as e:
                                 st.warning(f"Gagal memproses file {uploaded_file.name}: {str(e)}")
                         
                         if success_count > 0:
-                            st.success(f"✨ Berhasil mengekstrak {success_count} dokumen! Sisa kuota trial Anda: {MAX_TRIAL - st.session_state['trial_count']} kali.")
+                            st.success(f"✨ Berhasil mengekstrak {success_count} dokumen! Sisa kuota trial: {MAX_TRIAL - st.session_state['trial_count']} kali.")
                     except Exception as ex:
                         st.error(f"Gagal terhubung ke layanan AI: {str(ex)}")
 
-    # Tampilan Tabel Hasil & Ekspor
     if len(st.session_state["itemized_data"]) > 0:
         st.markdown("---")
         st.subheader("📊 Hasil Rekapitulasi & Validasi Data")
         
         df_preview = pd.DataFrame(st.session_state["itemized_data"])
-        
         st.info("💡 Klik sel mana saja pada tabel di bawah untuk melakukan koreksi manual sebelum diunduh.")
         
         edited_df = st.data_editor(
@@ -249,7 +246,6 @@ if app_mode == "🚀 Parser Utama":
             }
         )
         
-        # Metrik Ringkasan Profesional
         total_items = len(edited_df)
         total_vendors = edited_df["Nama Vendor"].nunique() if not edited_df.empty else 0
         grand_total = pd.to_numeric(edited_df["Total Harga"], errors="coerce").fillna(0).sum() if not edited_df.empty else 0
@@ -305,8 +301,8 @@ elif app_mode == "📚 Riwayat & Panduan":
         st.subheader("🎯 Tips Mendapatkan Hasil Akurat 99%")
         st.markdown("""
         * **Pencahayaan Cukup:** Hindari bayangan tangan atau benda menutupi teks penting pada struk.
-        * **Fokus Kamera:** Pastikan angka total dan rincian item tidak blur (*blurry*).
-        * **Format Dukungan:** Sistem mendukung gambar beresolusi tinggi (PNG, JPG, JPEG) hasil foto kamera ponsel maupun tangkapan layar digital (*e-receipt*).
+        * **Fokus Kamera:** Pastikan angka total dan rincian item tidak blur.
+        * **Format Dukungan:** Sistem mendukung gambar beresolusi tinggi (PNG, JPG, JPEG).
         """)
         
     with st.container(border=True):
@@ -317,11 +313,11 @@ elif app_mode == "📚 Riwayat & Panduan":
         """)
 
 # -------------------------------------------------------------
-# HALAMAN 3: KELOLA LANGGANAN (Monetisasi SaaS)
+# HALAMAN 3: KELOLA LANGGANAN
 # -------------------------------------------------------------
 elif app_mode == "💳 Kelola Langganan":
     st.markdown('<p class="main-header">💳 Paket & Langganan Layanan</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Pilih skema berlangganan yang sesuai dengan skala bisnis atau perusahaan Anda setelah masa trial habis.</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Pilih skema berlangganan yang sesuai dengan skala bisnis atau perusahaan Anda.</p>', unsafe_allow_html=True)
     st.markdown("---")
     
     col_plan1, col_plan2, col_plan3 = st.columns(3)
@@ -355,3 +351,53 @@ elif app_mode == "💳 Kelola Langganan":
             st.markdown("✅ **Unlimited** Struk\n✅ Custom API Integration\n✅ Dedicated Account Manager")
             st.markdown("")
             st.button("Hubungi Sales", use_container_width=True, key="p3")
+
+# -------------------------------------------------------------
+# HALAMAN 4: TANYA CS AI (Asisten Virtual Pintar)
+# -------------------------------------------------------------
+elif app_mode == "💬 Tanya CS AI":
+    st.markdown('<p class="main-header">💬 Pusat Bantuan & CS AI</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Tanyakan apa saja seputar cara penggunaan aplikasi, kendala scan, atau info paket berlangganan kepada asisten virtual kami.</p>', unsafe_allow_html=True)
+    st.markdown("---")
+
+    # Menampilkan riwayat chat
+    for message in st.session_state["cs_messages"]:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    # Input chat pengguna
+    if user_query := st.chat_input("Ketik pertanyaan Anda di sini... (Contoh: Bagaimana cara upgrade paket?)"):
+        st.session_state["cs_messages"].append({"role": "user", "content": user_query})
+        with st.chat_message("user"):
+            st.markdown(user_query)
+
+        # Generate jawaban menggunakan Gemini API pribadi
+        with st.chat_message("assistant"):
+            with st.spinner("Asisten CS sedang mengetik..."):
+                try:
+                    if not GEMINI_API_KEY:
+                        reply = "Maaf, sistem API Key belum terkonfigurasi dengan benar."
+                    else:
+                        genai.configure(api_key=GEMINI_API_KEY)
+                        # Gunakan model teks cerdas untuk CS Bot
+                        cs_model = genai.GenerativeModel('gemini-1.5-flash')
+                        
+                        system_context = """
+                        Anda adalah Customer Service Virtual yang ramah, profesional, dan membantu untuk aplikasi SaaS bernama 'BizReceipt AI'. 
+                        Aplikasi ini adalah platform berbasis AI untuk mengekstrak struk dan faktur belanja menjadi laporan Excel/CSV.
+                        Informasi Layanan:
+                        - Ada mode trial gratis 10x pemrosesan.
+                        - Paket Starter: Rp 99.000/bulan (150 struk).
+                        - Paket Business Pro: Rp 249.000/bulan (600 struk).
+                        - Paket Enterprise: Rp 599.000/bulan (Unlimited).
+                        Jawablah dengan bahasa Indonesia yang sopan, ramah, dan membantu.
+                        """
+                        
+                        full_prompt = f"{system_context}\n\nPertanyaan Pengguna: {user_query}"
+                        response = cs_model.generate_content(full_prompt)
+                        reply = response.text
+                except Exception as e:
+                    reply = f"Maaf, terjadi kendala saat menghubungkan ke layanan CS AI: {str(e)}"
+
+                st.markdown(reply)
+                st.session_state["cs_messages"].append({"role": "assistant", "content": reply})
