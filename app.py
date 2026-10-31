@@ -372,7 +372,7 @@ elif app_mode == "💳 Kelola Langganan & QRIS":
             st.markdown("Sudah melakukan pembayaran? Klik tombol di bawah untuk mengirimkan bukti transfer (*screenshot*) beserta username akun Anda ke Telegram admin.")
             
             # Ganti dengan username Telegram Anda (tanpa tanda @)
-            telegram_username = "UsernameTelegramAnda" 
+            telegram_username = "Master_bot_ai" 
             tg_message = "Halo Admin, saya sudah melakukan pembayaran berlangganan BizReceipt AI via QRIS. Berikut bukti transfernya:"
             encoded_msg = urllib.parse.quote(tg_message)
             tg_link = f"https://t.me/{telegram_username}?text={encoded_msg}"
