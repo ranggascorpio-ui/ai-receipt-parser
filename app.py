@@ -166,9 +166,10 @@ if app_mode == "🚀 Parser Utama":
                 with st.spinner("🤖 AI sedang memindai rincian transaksi, pajak, dan item belanja..."):
                     try:
                         genai.configure(api_key=GEMINI_API_KEY)
+                        # Menggunakan gemini-1.5-flash yang kompatibel dan cepat
                         model = genai.GenerativeModel(
-                        model_name='gemini-1.5-flash',
-                        generation_config={"response_mime_type": "application/json"}
+                            model_name='gemini-1.5-flash',
+                            generation_config={"response_mime_type": "application/json"}
                         )
                         
                         prompt = """
@@ -363,16 +364,16 @@ elif app_mode == "💳 Kelola Langganan & QRIS":
         with col_qris1:
             st.info("📌 **QRIS Resmi BizReceipt AI / GoPay Merchant**")
             try:
-                st.image("qris.png", caption="Scan pakai aplikasi apa saja (BCA, Livin, GoPay, OVO, DANA, dll)", use_container_width=True)
+                # Menggunakan qris.png.jpeg sesuai file unggahan Anda
+                st.image("qris.png.jpeg", caption="Scan pakai aplikasi apa saja (BCA, Livin, GoPay, OVO, DANA, dll)", use_container_width=True)
             except Exception:
-               st.image("qris.png.jpeg", caption="...", use_container_width=True)
+                st.warning("⚠️ File gambar QRIS belum ditemukan. Pastikan file terunggah dengan benar.")
                 
         with col_qris2:
             st.markdown("### 💬 Konfirmasi Pembayaran Instan")
             st.markdown("Sudah melakukan pembayaran? Klik tombol di bawah untuk mengirimkan bukti transfer (*screenshot*) beserta username akun Anda ke Telegram admin.")
             
-            # Ganti dengan username Telegram Anda (tanpa tanda @)
-            telegram_username = "Master_bot_ai" 
+            telegram_username = "UsernameTelegramAnda" 
             tg_message = "Halo Admin, saya sudah melakukan pembayaran berlangganan BizReceipt AI via QRIS. Berikut bukti transfernya:"
             encoded_msg = urllib.parse.quote(tg_message)
             tg_link = f"https://t.me/{telegram_username}?text={encoded_msg}"
@@ -409,6 +410,7 @@ elif app_mode == "💬 Tanya CS AI":
                         reply = "Maaf, sistem API Key belum terkonfigurasi dengan benar."
                     else:
                         genai.configure(api_key=GEMINI_API_KEY)
+                        # Menggunakan gemini-1.5-flash untuk CS Bot
                         cs_model = genai.GenerativeModel('gemini-1.5-flash')
                         
                         system_context = """
