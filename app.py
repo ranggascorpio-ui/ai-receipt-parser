@@ -365,7 +365,7 @@ elif app_mode == "💳 Kelola Langganan & QRIS":
             try:
                 st.image("qris.png", caption="Scan pakai aplikasi apa saja (BCA, Livin, GoPay, OVO, DANA, dll)", use_container_width=True)
             except Exception:
-                st.warning("⚠️ File gambar QRIS (`qris.png`) belum diunggah ke repository GitHub Anda. Silakan unggah file gambar QRIS Anda dengan nama `qris.png`.")
+               st.image("qris.png.jpeg", caption="...", use_container_width=True)
                 
         with col_qris2:
             st.markdown("### 💬 Konfirmasi Pembayaran Instan")
