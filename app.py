@@ -460,17 +460,17 @@ if app_mode == "🚀 Parser & LPJ Proyek":
                             break
                         try:
                             rows = parse_single_file(u_file, GEMINI_API_KEY, project_name)
-                            st.session_state["itemized_data"].extend(rows)
-                            st.session_state["quota_left"] -= 1
-                            update_user_quota_in_db(st.session_state["user_email"], st.session_state["quota_left"])
-                            success_count += 1
+                            if rows and isinstance(rows, list):
+                                st.session_state["itemized_data"].extend(rows)
+                                st.session_state["quota_left"] -= 1
+                                update_user_quota_in_db(st.session_state["user_email"], st.session_state["quota_left"])
+                                success_count += 1
                         except Exception as e:
                             notify_admin_error(str(e), context=f"Scan: {u_file.name}")
                             st.warning(f"Gagal memproses {u_file.name}: {e}")
 
                     if success_count > 0:
                         st.success(f"✨ Selesai memproses {success_count} struk! Sisa kuota: {st.session_state['quota_left']}.")
-
     # Tabel Rekapitulasi & Kalkulator Kas Bon
     if len(st.session_state["itemized_data"]) > 0:
         st.markdown("---")
