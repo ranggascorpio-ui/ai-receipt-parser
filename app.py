@@ -215,6 +215,25 @@ def parse_single_file(u_file, api_key, label_klien_proyek):
     raw = resp.text.strip().removeprefix("```json").removesuffix("```").strip()
     data = json.loads(raw)
 
+def optimize_image(img, max_dimension=1280, quality=80):
+    """Mengecilkan resolusi gambar struk tanpa merusak keterbacaan teks."""
+    img = img.convert("RGB")
+    width, height = img.size
+    
+    # Resize proporsional jika sisi terpanjang melebihi 1280px
+    if max(width, height) > max_dimension:
+        if width > height:
+            new_w = max_dimension
+            new_h = int(height * (max_dimension / width))
+        else:
+            new_h = max_dimension
+            new_w = int(width * (max_dimension / height))
+        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+        
+    buffer = io.BytesIO()
+    img.save(buffer, format="JPEG", quality=quality, optimize=True)
+    buffer.seek(0)
+    return Image.open(buffer)
     vendor = data.get("nama_vendor") or "-"
     no_struk = data.get("no_struk") or "-"
     tgl = data.get("tanggal") or "-"
