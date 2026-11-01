@@ -93,6 +93,8 @@ Ekstrak data struk ini ke format JSON murni:
   "mata_uang": "IDR / USD / SGD / EUR / MYR / lainnya",
   "kurs_ke_idr": 1,
   "total_ppn_struk_idr": 0,
+  "total_harga_asli": 0,
+  "total_harga_idr": 0,
   "items": [
     {
       "Nama Barang": "Nama produk",
@@ -114,6 +116,7 @@ Aturan Ketat Konversi & Ekstraksi:
    - "Total Harga IDR" wajib hasil perkalian dari (Total Harga Asli * kurs_ke_idr) dibulatkan ke integer.
 4. Jika struk mencantumkan pajak (PPN/PB1/Tax/GST), konversikan nominal total pajaknya ke IDR dan catat di "total_ppn_struk_idr".
 5. Kelompokkan tiap barang ke salah satu dari 5 kategori yang tersedia.
+6. Jika tidak ada rincian item (misal nota bensin, parkir), cantumkan total transaksi di "total_harga_asli" dan "total_harga_idr".
 """
 
 def fetch_user_data(email):
@@ -138,7 +141,6 @@ def update_user_quota_in_db(email, new_quota):
 def call_gemini_api(api_key, contents, is_json=False):
     genai.configure(api_key=api_key)
     
-    # Daftar model khusus Vision / Gambar yang stabil & mendukung dokumen
     candidates = [
         "gemini-2.5-flash",
         "gemini-2.0-flash",
@@ -150,7 +152,6 @@ def call_gemini_api(api_key, contents, is_json=False):
     try:
         for m in genai.list_models():
             clean_name = m.name.replace("models/", "")
-            # Hanya ambil model yang mendukung gambar, tolak model audio / TTS / embedding
             if (
                 "generateContent" in m.supported_generation_methods
                 and clean_name not in candidates
@@ -173,7 +174,6 @@ def call_gemini_api(api_key, contents, is_json=False):
         except Exception as e:
             last_err = e
             msg = str(e).lower()
-            # Abaikan model jika: kuota habis (429), model tidak ditemukan (404), atau tidak dukung gambar (modality error)
             skip_triggers = [
                 "404", "not found", "no longer available",
                 "429", "quota", "resource_exhausted", "exceeded",
@@ -183,30 +183,6 @@ def call_gemini_api(api_key, contents, is_json=False):
                 continue
             raise e
             
-    raise last_err
-    for model_name in candidates:
-        try:
-            model = genai.GenerativeModel(model_name=model_name, generation_config=cfg)
-            return model.generate_content(contents)
-        except Exception as e:
-            last_err = e
-            msg = str(e).lower()
-            # Jika model 404 (tidak ada) ATAU 429 (kuota harian habis), otomatis coba model alternatif berikutnya
-            if any(term in msg for term in ["404", "not found", "no longer available", "429", "quota", "resource_exhausted", "exceeded"]):
-                continue
-            raise e
-    raise last_err
-
-    for model_name in candidates:
-        try:
-            model = genai.GenerativeModel(model_name=model_name, generation_config=cfg)
-            return model.generate_content(contents)
-        except Exception as e:
-            last_err = e
-            msg = str(e).lower()
-            if "404" in msg or "not found" in msg or "no longer available" in msg:
-                continue
-            raise e
     raise last_err
 
 def parse_single_file(u_file, api_key, label_klien_proyek):
@@ -219,22 +195,11 @@ def parse_single_file(u_file, api_key, label_klien_proyek):
     raw = resp.text.strip().removeprefix("```json").removesuffix("```").strip()
     data = json.loads(raw)
 
-    # Antisipasi jika AI mengembalikan list langsung
     if isinstance(data, list) and len(data) > 0:
         data = data[0]
     elif not isinstance(data, dict):
         data = {}
-try:
-                            rows = parse_single_file(u_file, GEMINI_API_KEY, project_name)
-                            if rows and isinstance(rows, list):
-                                st.session_state["itemized_data"].extend(rows)
-                                st.session_state["quota_left"] -= 1
-                                update_user_quota_in_db(st.session_state["user_email"], st.session_state["quota_left"])
-                                success_count += 1
-                        except Exception as e:
-                            notify_admin_error(str(e), context=f"Scan: {u_file.name}")
-                            st.warning(f"Gagal memproses {u_file.name}: {e}")
-                            
+
     vendor = data.get("nama_vendor") or "-"
     no_struk = data.get("no_struk") or "-"
     tgl = data.get("tanggal") or "-"
@@ -242,10 +207,8 @@ try:
     kurs = pd.to_numeric(data.get("kurs_ke_idr", 1), errors="coerce") or 1
     total_ppn_idr = pd.to_numeric(data.get("total_ppn_struk_idr", 0), errors="coerce") or 0
     
-    # Amankan pengambilan items jika bernilai None atau bukan list
     items = data.get("items")
     if not items or not isinstance(items, list):
-        # Fallback otomatis untuk struk tanpa rincian item (struk parkir, bensin, dll.)
         items = [{
             "Nama Barang": "Transaksi Nota / Umum",
             "Kategori": "Operasional",
@@ -288,34 +251,6 @@ try:
             "Status Klaim": "Pending"
         })
         
-    return rows
-    for item in items:
-        tot_asli = pd.to_numeric(item.get("Total Harga Asli", 0), errors="coerce") or 0
-        tot_idr = pd.to_numeric(item.get("Total Harga IDR", 0), errors="coerce")
-        if pd.isna(tot_idr) or tot_idr == 0:
-            tot_idr = int(round(tot_asli * kurs))
-
-        kategori = item.get("Kategori") or "Lainnya"
-        item_ppn_idr = int(round(total_ppn_idr / num_items)) if total_ppn_idr > 0 else 0
-        dpp_idr = max(0, int(tot_idr) - item_ppn_idr) if item_ppn_idr > 0 else int(tot_idr)
-
-        rows.append({
-            "File Sumber": u_file.name,
-            "Klien / Proyek": label_klien_proyek,
-            "Tanggal": tgl,
-            "Nama Vendor": vendor,
-            "No. Struk": no_struk,
-            "Kategori": kategori,
-            "Nama Barang": item.get("Nama Barang", "-"),
-            "Kuantitas": item.get("Kuantitas", "1"),
-            "Valuta": mata_uang,
-            "Nominal Asli": float(tot_asli),
-            "Kurs (IDR)": int(kurs),
-            "DPP (IDR)": int(dpp_idr),
-            "PPN (IDR)": int(item_ppn_idr),
-            "Total (IDR)": int(tot_idr),
-            "Status Klaim": "Pending"
-        })
     return rows
 
 def show_qris_image():
@@ -414,7 +349,6 @@ if app_mode == "🚀 Parser & LPJ Proyek":
     st.markdown('<p class="main-header">💼 Ekstraksi Struk, Multi-Valuta & Kas Bon</p>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Mendukung struk domestik & internasional (USD, SGD, dll.) dengan konversi kurs IDR instan.</p>', unsafe_allow_html=True)
 
-    # Panel Setup Proyek & Kas Bon
     with st.expander("📌 Pengaturan Klien, Proyek & Kas Bon (Klik untuk Buka/Tutup)", expanded=True):
         col_proj, col_bon = st.columns(2)
         project_name = col_proj.text_input(
@@ -471,14 +405,13 @@ if app_mode == "🚀 Parser & LPJ Proyek":
 
                     if success_count > 0:
                         st.success(f"✨ Selesai memproses {success_count} struk! Sisa kuota: {st.session_state['quota_left']}.")
-    # Tabel Rekapitulasi & Kalkulator Kas Bon
+
     if len(st.session_state["itemized_data"]) > 0:
         st.markdown("---")
         st.subheader("📊 Tabel Rekapitulasi Finansial & Valuta")
 
         df = pd.DataFrame(st.session_state["itemized_data"])
 
-        # Editor Interaktif
         edited_df = st.data_editor(
             df,
             num_rows="dynamic",
@@ -503,7 +436,6 @@ if app_mode == "🚀 Parser & LPJ Proyek":
             }
         )
 
-        # Metrik Finansial
         total_items = len(edited_df)
         grand_total_idr = pd.to_numeric(edited_df["Total (IDR)"], errors="coerce").fillna(0).sum() if not edited_df.empty else 0
         total_ppn_idr_sum = pd.to_numeric(edited_df["PPN (IDR)"], errors="coerce").fillna(0).sum() if not edited_df.empty else 0
@@ -515,7 +447,6 @@ if app_mode == "🚀 Parser & LPJ Proyek":
         m3.metric("Total Pajak / PPN", f"Rp {int(total_ppn_idr_sum):,}".replace(",", "."))
         m4.metric("Total Belanja (IDR)", f"Rp {int(grand_total_idr):,}".replace(",", "."))
 
-        # Panel Rekonsiliasi Kas Bon
         if kas_bon_awal > 0:
             st.markdown("#### ⚖️ Rekonsiliasi Kas Bon / LPJ")
             selisih = kas_bon_awal - grand_total_idr
@@ -527,7 +458,6 @@ if app_mode == "🚀 Parser & LPJ Proyek":
             else:
                 c_bon3.error(f"⚠️ **Nominal Kurang (Reimburse):**\n\n**Rp {int(abs(selisih)):,}**".replace(",", "."))
 
-        # Ekspor File
         st.markdown("---")
         c_dl1, c_dl2, c_del = st.columns([1, 1, 2])
         now_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
