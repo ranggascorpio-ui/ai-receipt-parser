@@ -461,3 +461,55 @@ elif app_mode == "📚 Riwayat & Panduan":
         "3. **Pencatatan Pajak:** Nilai PPN/GST otomatis dipisahkan dari nilai dasar (DPP) untuk kebutuhan rekonsiliasi akuntansi.\n"
         "4. **LPJ Lapangan:** Masukkan nominal kas bon di bagian atas sebelum mengunggah struk untuk melihat perhitungan sisa dana secara otomatis."
     )
+
+# --- HALAMAN 3: LANGGANAN & QRIS ---
+elif app_mode == "💳 Kelola Langganan & QRIS":
+    st.markdown('<p class="main-header">💳 Paket Lisensi & QRIS</p>', unsafe_allow_html=True)
+    st.markdown("---")
+    c1, c2, c3 = st.columns(3)
+    c1.info("### 🥉 Starter\n#### **Rp 99.000** / bln\n* ✅ 150 Struk\n* ✅ Ekspor Excel & CSV")
+    c2.success("### 🥈 Business Pro\n#### **Rp 249.000** / bln\n* ⭐ **Paling Diminati**\n* ✅ 600 Struk\n* ✅ Fitur Valuta Asing, Pajak & LPJ")
+    c3.warning("### 🥇 Enterprise\n#### **Rp 599.000** / bln\n* ✅ **Unlimited** Struk\n* ✅ Prioritas Support")
+
+    st.markdown("---")
+    st.subheader("📲 Pembayaran QRIS GoPay Merchant")
+    q_col1, q_col2 = st.columns([1, 1], gap="large")
+    with q_col1:
+        st.info("📌 **Scan Kode QRIS**")
+        show_qris_image()
+    with q_col2:
+        st.markdown("### 💬 Konfirmasi Langganan")
+        st.write("Setelah melakukan transfer, klik tombol di bawah untuk mengirim bukti transfer ke Telegram Admin.")
+        tg_msg = f"Halo Admin, saya sudah transfer via QRIS untuk paket BizReceipt AI. Email: {st.session_state['user_email']}"
+        tg_url = f"https://t.me/MasterGenerative_bot?text={urllib.parse.quote(tg_msg)}"
+        st.link_button("✈️ Konfirmasi Pembayaran via Telegram", url=tg_url, type="primary", use_container_width=True)
+
+# --- HALAMAN 4: CS VIRTUAL ---
+elif app_mode == "💬 Tanya CS AI":
+    st.markdown('<p class="main-header">💬 Pusat Layanan Pelanggan</p>', unsafe_allow_html=True)
+    st.markdown("---")
+    for msg in st.session_state["cs_messages"]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    q_user = st.chat_input("Tanyakan seputar fitur, multi-valuta, PPN, LPJ, atau aktivasi paket...")
+    if q_user:
+        st.session_state["cs_messages"].append({"role": "user", "content": q_user})
+        with st.chat_message("user"):
+            st.markdown(q_user)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Mengetik jawaban..."):
+                try:
+                    sys_prompt = (
+                        f"Anda adalah CS BizReceipt AI untuk user {st.session_state['user_email']}. "
+                        "Bantu jawab pertanyaan seputar klaim kas kecil, pembukuan pajak PPN, konversi valuta asing ke IDR, "
+                        "LPJ kas bon, dan pembayaran via QRIS ke Telegram @MasterGenerative_bot secara ramah dan ringkas."
+                    )
+                    full_in = f"{sys_prompt}\n\nPertanyaan: {q_user}"
+                    resp = call_gemini_api(GEMINI_API_KEY, full_in, is_json=False)
+                    ans = resp.text
+                except Exception as e:
+                    ans = f"Layanan CS sedang sibuk: {e}"
+                st.markdown(ans)
+                st.session_state["cs_messages"].append({"role": "assistant", "content": ans})
