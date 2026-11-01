@@ -459,4 +459,5 @@ elif app_mode == "📚 Riwayat & Panduan":
         "1. **Struk Asing (Multi-Currency):** Cukup unggah foto struk dalam valuta apa pun (USD, SGD, dsb.). AI otomatis membaca nominal asli dan mengalikan dengan kurs wajar ke IDR.\n"
         "2. **Administrasi Petty Cash:** Ubah status pada kolom *Status Klaim* menjadi *Disetujui* atau *Sudah Cair* setelah dana ditransfer ke staf.\n"
         "3. **Pencatatan Pajak:** Nilai PPN/GST otomatis dipisahkan dari nilai dasar (DPP) untuk kebutuhan rekonsiliasi akuntansi.\n"
-        "4. **LPJ Lapangan:** Masukkan nominal kas bon di bagian atas sebelum mengunggah stru
+        "4. **LPJ Lapangan:** Masukkan nominal kas bon di bagian atas sebelum mengunggah struk untuk melihat perhitungan sisa dana secara otomatis."
+    )
