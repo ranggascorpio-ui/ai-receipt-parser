@@ -80,31 +80,40 @@ if "itemized_data" not in st.session_state:
     st.session_state["itemized_data"] = []
 if "cs_messages" not in st.session_state:
     st.session_state["cs_messages"] = [
-        {"role": "assistant", "content": "Halo! Ada yang bisa saya bantu seputar pemakaian fitur, PPN, LPJ, atau pembayaran?"}
+        {"role": "assistant", "content": "Halo! Ada yang bisa saya bantu seputar pemakaian fitur, multi-valuta, PPN, LPJ, atau pembayaran?"}
     ]
 
-# Prompt Khusus: Auto-Kategori + Auto-Deteksi Pajak (PPN/PB1)
+# Prompt Mutakhir: Kategori + Pajak + Deteksi Mata Uang & Konversi Kurs IDR
 PROMPT_RECEIPT = """
 Ekstrak data struk ini ke format JSON murni:
 {
   "nama_vendor": "Nama toko/vendor",
   "no_struk": "Nomor struk/nota",
   "tanggal": "YYYY-MM-DD",
-  "total_ppn_struk": 0,
+  "mata_uang": "IDR / USD / SGD / EUR / MYR / lainnya",
+  "kurs_ke_idr": 1,
+  "total_ppn_struk_idr": 0,
   "items": [
     {
       "Nama Barang": "Nama produk",
       "Kategori": "Pilih salah satu: Konsumsi / Transportasi / ATK & Operasional / Bahan Baku / Lainnya",
       "Kuantitas": "1 Pcs",
-      "Harga Satuan": 10000,
-      "Total Harga": 10000
+      "Harga Satuan Asli": 10.0,
+      "Total Harga Asli": 10.0,
+      "Total Harga IDR": 160000
     }
   ]
 }
-Aturan Ketat:
-1. Jika tertera PPN/PB1/Pajak Restoran, catat nominal total pajak tersebut di "total_ppn_struk" (angka bulat murni). Jika tidak ada, isi 0.
-2. Klasifikasikan tiap barang ke salah satu dari 5 kategori yang tersedia.
-3. Harga Satuan dan Total Harga wajib angka bulat murni tanpa titik atau tanda koma.
+
+Aturan Ketat Konversi & Ekstraksi:
+1. Deteksi simbol atau kode mata uang pada struk ($, S$, SGD, USD, RM, €, Rp).
+2. Jika mata uang adalah IDR: set "mata_uang": "IDR", "kurs_ke_idr": 1.
+3. Jika mata uang ASING (misal USD, SGD, MYR, EUR):
+   - Isi "mata_uang" dengan kodenya (misal: "USD").
+   - Tentukan estimasi kurs wajar ke IDR di "kurs_ke_idr" (misal: USD ~ 16000, SGD ~ 12000, EUR ~ 17500, MYR ~ 3600).
+   - "Total Harga IDR" wajib hasil perkalian dari (Total Harga Asli * kurs_ke_idr) dibulatkan ke integer.
+4. Jika struk mencantumkan pajak (PPN/PB1/Tax/GST), konversikan nominal total pajaknya ke IDR dan catat di "total_ppn_struk_idr".
+5. Kelompokkan tiap barang ke salah satu dari 5 kategori yang tersedia.
 """
 
 def fetch_user_data(email):
@@ -166,19 +175,22 @@ def parse_single_file(u_file, api_key, label_klien_proyek):
     vendor = data.get("nama_vendor") or "-"
     no_struk = data.get("no_struk") or "-"
     tgl = data.get("tanggal") or "-"
-    total_ppn = pd.to_numeric(data.get("total_ppn_struk", 0), errors="coerce") or 0
+    mata_uang = str(data.get("mata_uang") or "IDR").upper()
+    kurs = pd.to_numeric(data.get("kurs_ke_idr", 1), errors="coerce") or 1
+    total_ppn_idr = pd.to_numeric(data.get("total_ppn_struk_idr", 0), errors="coerce") or 0
     items = data.get("items", [])
     num_items = len(items) if len(items) > 0 else 1
 
     rows = []
-    for idx, item in enumerate(items):
-        hs = pd.to_numeric(item.get("Harga Satuan", 0), errors="coerce") or 0
-        th = pd.to_numeric(item.get("Total Harga", 0), errors="coerce") or 0
+    for item in items:
+        tot_asli = pd.to_numeric(item.get("Total Harga Asli", 0), errors="coerce") or 0
+        tot_idr = pd.to_numeric(item.get("Total Harga IDR", 0), errors="coerce")
+        if pd.isna(tot_idr) or tot_idr == 0:
+            tot_idr = int(round(tot_asli * kurs))
+
         kategori = item.get("Kategori") or "Lainnya"
-        
-        # Alokasi proporsional PPN per baris item
-        item_ppn = int(round(total_ppn / num_items)) if total_ppn > 0 else 0
-        dpp = max(0, int(th) - item_ppn) if item_ppn > 0 else int(th)
+        item_ppn_idr = int(round(total_ppn_idr / num_items)) if total_ppn_idr > 0 else 0
+        dpp_idr = max(0, int(tot_idr) - item_ppn_idr) if item_ppn_idr > 0 else int(tot_idr)
 
         rows.append({
             "File Sumber": u_file.name,
@@ -189,11 +201,13 @@ def parse_single_file(u_file, api_key, label_klien_proyek):
             "Kategori": kategori,
             "Nama Barang": item.get("Nama Barang", "-"),
             "Kuantitas": item.get("Kuantitas", "1"),
-            "Harga Satuan": int(hs),
-            "DPP (Netto)": int(dpp),
-            "PPN / Pajak": int(item_ppn),
-            "Total Harga": int(th),
-            "Status Reimbursement": "Pending"
+            "Valuta": mata_uang,
+            "Nominal Asli": float(tot_asli),
+            "Kurs (IDR)": int(kurs),
+            "DPP (IDR)": int(dpp_idr),
+            "PPN (IDR)": int(item_ppn_idr),
+            "Total (IDR)": int(tot_idr),
+            "Status Klaim": "Pending"
         })
     return rows
 
@@ -209,7 +223,7 @@ def show_qris_image():
 # --- GERBANG AUTENTIKASI ---
 if not st.session_state["logged_in"]:
     st.markdown('<p class="main-header">💼 BizReceipt AI | Portal Akses</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Platform Manajemen Struk, Pajak, dan Reimbursement Berbasis Kecerdasan Buatan.</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Platform Manajemen Struk Multi-Valuta, Pajak, dan Reimbursement.</p>', unsafe_allow_html=True)
     
     tab_login, tab_register = st.tabs(["🔑 Masuk (Login)", "📝 Daftar Akun Baru (Register)"])
     
@@ -288,10 +302,10 @@ app_mode = st.sidebar.radio(
 )
 st.sidebar.caption("© 2026 BizReceipt AI Suite.")
 
-# --- HALAMAN 1: PARSER, PAJAK & LPJ KAS BON ---
+# --- HALAMAN 1: PARSER, VALUTA, PAJAK & LPJ ---
 if app_mode == "🚀 Parser & LPJ Proyek":
-    st.markdown('<p class="main-header">💼 Ekstraksi Struk, Pajak & Kas Bon</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Solusi terintegrasi untuk klaim petty cash, audit pajak PPN, dan laporan pertanggungjawaban proyek.</p>', unsafe_allow_html=True)
+    st.markdown('<p class="main-header">💼 Ekstraksi Struk, Multi-Valuta & Kas Bon</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Mendukung struk domestik & internasional (USD, SGD, dll.) dengan konversi kurs IDR instan.</p>', unsafe_allow_html=True)
 
     # Panel Setup Proyek & Kas Bon
     with st.expander("📌 Pengaturan Klien, Proyek & Kas Bon (Klik untuk Buka/Tutup)", expanded=True):
@@ -299,14 +313,14 @@ if app_mode == "🚀 Parser & LPJ Proyek":
         project_name = col_proj.text_input(
             "🏷️ Nama Klien / Proyek / Divisi",
             value="Operasional Kantor",
-            help="Contoh: Klien PT Abadi, Event Surabaya, atau Proyek Renovasi"
+            help="Contoh: Klien PT Abadi, Reimburse Perjalanan Singapore, atau Project Launching"
         )
         kas_bon_awal = col_bon.number_input(
-            "💵 Kas Bon / Dana Diterima di Lapangan (Rp)",
+            "💵 Kas Bon / Dana Diterima Lapangan (IDR)",
             min_value=0,
             step=50000,
             value=0,
-            help="Masukkan nominal dana awal jika struk ini untuk LPJ pertanggungjawaban dana kas bon."
+            help="Nominal dana muka kas bon dalam IDR untuk menghitung sisa lebih/kurang pertanggungjawaban."
         )
 
     col_up, col_info = st.columns([2, 1], gap="medium")
@@ -319,8 +333,8 @@ if app_mode == "🚀 Parser & LPJ Proyek":
     col_info.info(
         f"🎯 **Status Operasional**\n\n"
         f"• Kuota Aktif: **{st.session_state['quota_left']} kali**\n"
-        f"• Auto-Kategori: **Aktif (5 Divisi Biaya)**\n"
-        f"• Pemisahan PPN/DPP: **Aktif**\n"
+        f"• Konversi Valuta: **Aktif (USD/SGD/EUR $\\rightarrow$ IDR)**\n"
+        f"• Deteksi Pajak: **Aktif (PPN/Tax & DPP)**\n"
         f"• Tracking Kas Bon: **{'Aktif' if kas_bon_awal > 0 else 'Nonaktif'}**"
     )
 
@@ -331,7 +345,7 @@ if app_mode == "🚀 Parser & LPJ Proyek":
             elif not GEMINI_API_KEY:
                 st.error("⚠️ API Key Gemini belum disetel di Secrets.")
             else:
-                with st.spinner("🤖 AI sedang memindai detail struk, pajak, dan kategori biaya..."):
+                with st.spinner("🤖 AI sedang membaca teks, mata uang, kurs, dan rincian transaksi..."):
                     success_count = 0
                     for u_file in uploaded_files:
                         if st.session_state["quota_left"] <= 0:
@@ -353,11 +367,11 @@ if app_mode == "🚀 Parser & LPJ Proyek":
     # Tabel Rekapitulasi & Kalkulator Kas Bon
     if len(st.session_state["itemized_data"]) > 0:
         st.markdown("---")
-        st.subheader("📊 Tabel Rekapitulasi & Rekonsiliasi")
+        st.subheader("📊 Tabel Rekapitulasi Finansial & Valuta")
 
         df = pd.DataFrame(st.session_state["itemized_data"])
 
-        # Editor Interaktif dengan Dropdown Kolom
+        # Editor Interaktif
         edited_df = st.data_editor(
             df,
             num_rows="dynamic",
@@ -368,37 +382,39 @@ if app_mode == "🚀 Parser & LPJ Proyek":
                     options=["Konsumsi", "Transportasi", "ATK & Operasional", "Bahan Baku", "Lainnya"],
                     required=True
                 ),
-                "Status Reimbursement": st.column_config.SelectboxColumn(
+                "Status Klaim": st.column_config.SelectboxColumn(
                     "Status Klaim",
                     options=["Pending", "Disetujui", "Sudah Cair"],
                     required=True
                 ),
-                "Harga Satuan": st.column_config.NumberColumn("Harga Satuan", format="Rp %d"),
-                "DPP (Netto)": st.column_config.NumberColumn("DPP / Netto", format="Rp %d"),
-                "PPN / Pajak": st.column_config.NumberColumn("PPN", format="Rp %d"),
-                "Total Harga": st.column_config.NumberColumn("Total Transaksi", format="Rp %d"),
+                "Valuta": st.column_config.TextColumn("Mata Uang", width="small"),
+                "Nominal Asli": st.column_config.NumberColumn("Nominal Asli", format="%.2f"),
+                "Kurs (IDR)": st.column_config.NumberColumn("Kurs (Rp)", format="Rp %d"),
+                "DPP (IDR)": st.column_config.NumberColumn("DPP Netto (Rp)", format="Rp %d"),
+                "PPN (IDR)": st.column_config.NumberColumn("PPN / Tax (Rp)", format="Rp %d"),
+                "Total (IDR)": st.column_config.NumberColumn("Total Transaksi (IDR)", format="Rp %d"),
             }
         )
 
         # Metrik Finansial
         total_items = len(edited_df)
-        grand_total = pd.to_numeric(edited_df["Total Harga"], errors="coerce").fillna(0).sum() if not edited_df.empty else 0
-        total_ppn_sum = pd.to_numeric(edited_df["PPN / Pajak"], errors="coerce").fillna(0).sum() if not edited_df.empty else 0
-        total_dpp_sum = pd.to_numeric(edited_df["DPP (Netto)"], errors="coerce").fillna(0).sum() if not edited_df.empty else 0
+        grand_total_idr = pd.to_numeric(edited_df["Total (IDR)"], errors="coerce").fillna(0).sum() if not edited_df.empty else 0
+        total_ppn_idr_sum = pd.to_numeric(edited_df["PPN (IDR)"], errors="coerce").fillna(0).sum() if not edited_df.empty else 0
+        total_dpp_idr_sum = pd.to_numeric(edited_df["DPP (IDR)"], errors="coerce").fillna(0).sum() if not edited_df.empty else 0
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total Item", f"{total_items} Item")
-        m2.metric("Total DPP (Netto)", f"Rp {int(total_dpp_sum):,}".replace(",", "."))
-        m3.metric("Total PPN / Pajak", f"Rp {int(total_ppn_sum):,}".replace(",", "."))
-        m4.metric("Total Pengeluaran", f"Rp {int(grand_total):,}".replace(",", "."))
+        m2.metric("Total DPP Netto", f"Rp {int(total_dpp_idr_sum):,}".replace(",", "."))
+        m3.metric("Total Pajak / PPN", f"Rp {int(total_ppn_idr_sum):,}".replace(",", "."))
+        m4.metric("Total Belanja (IDR)", f"Rp {int(grand_total_idr):,}".replace(",", "."))
 
-        # Panel Khusus: Kalkulator Kas Bon / LPJ
+        # Panel Rekonsiliasi Kas Bon
         if kas_bon_awal > 0:
             st.markdown("#### ⚖️ Rekonsiliasi Kas Bon / LPJ")
-            selisih = kas_bon_awal - grand_total
+            selisih = kas_bon_awal - grand_total_idr
             c_bon1, c_bon2, c_bon3 = st.columns(3)
-            c_bon1.info(f"💵 **Dana Awal Diterima:**\n\nRp {int(kas_bon_awal):,}".replace(",", "."))
-            c_bon2.warning(f"🧾 **Total Belanja Riil:**\n\nRp {int(grand_total):,}".replace(",", "."))
+            c_bon1.info(f"💵 **Dana Awal Kas Bon:**\n\nRp {int(kas_bon_awal):,}".replace(",", "."))
+            c_bon2.warning(f"🧾 **Total Belanja (IDR):**\n\nRp {int(grand_total_idr):,}".replace(",", "."))
             if selisih >= 0:
                 c_bon3.success(f"💰 **Sisa Lebih (Kembalikan):**\n\n**Rp {int(selisih):,}**".replace(",", "."))
             else:
@@ -411,12 +427,12 @@ if app_mode == "🚀 Parser & LPJ Proyek":
 
         out_excel = io.BytesIO()
         with pd.ExcelWriter(out_excel, engine="openpyxl") as writer:
-            edited_df.to_excel(writer, index=False, sheet_name="Laporan_Keuangan")
+            edited_df.to_excel(writer, index=False, sheet_name="Laporan_Keuangan_IDR")
 
         c_dl1.download_button(
-            label="📊 Unduh Excel LPJ (.xlsx)",
+            label="📊 Unduh Excel Multi-Valuta (.xlsx)",
             data=out_excel.getvalue(),
-            file_name=f"laporan_keuangan_{now_ts}.xlsx",
+            file_name=f"laporan_finansial_{now_ts}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
@@ -425,7 +441,7 @@ if app_mode == "🚀 Parser & LPJ Proyek":
         c_dl2.download_button(
             label="📄 Unduh CSV (.csv)",
             data=csv_bytes,
-            file_name=f"laporan_keuangan_{now_ts}.csv",
+            file_name=f"laporan_finansial_{now_ts}.csv",
             mime="text/csv",
             use_container_width=True
         )
@@ -440,59 +456,7 @@ elif app_mode == "📚 Riwayat & Panduan":
     st.markdown("---")
     st.info(
         "💡 **Cara Memaksimalkan Fitur Finansial:**\n\n"
-        "1. **Administrasi Petty Cash:** Ubah kolom *Status Reimbursement* menjadi *Disetujui* atau *Sudah Cair* setelah pembayaran selesai ditransfer.\n"
-        "2. **Pencatatan Pajak:** Nilai PPN otomatis terpisah dari DPP, memudahkan pelaporan SPT masa PPN atau pembukuan bulanan UMKM.\n"
-        "3. **LPJ Lapangan:** Masukkan nilai kas bon di kolom pengaturan atas untuk mengetahui status surplus atau defisit anggaran belanja secara instan."
-    )
-
-# --- HALAMAN 3: LANGGANAN & QRIS ---
-elif app_mode == "💳 Kelola Langganan & QRIS":
-    st.markdown('<p class="main-header">💳 Paket Lisensi & QRIS</p>', unsafe_allow_html=True)
-    st.markdown("---")
-    c1, c2, c3 = st.columns(3)
-    c1.info("### 🥉 Starter\n#### **Rp 99.000** / bln\n* ✅ 150 Struk\n* ✅ Ekspor Excel & CSV")
-    c2.success("### 🥈 Business Pro\n#### **Rp 249.000** / bln\n* ⭐ **Paling Diminati**\n* ✅ 600 Struk\n* ✅ Fitur Pajak & LPJ Lengkap")
-    c3.warning("### 🥇 Enterprise\n#### **Rp 599.000** / bln\n* ✅ **Unlimited** Struk\n* ✅ Prioritas Support")
-
-    st.markdown("---")
-    st.subheader("📲 Pembayaran QRIS GoPay Merchant")
-    q_col1, q_col2 = st.columns([1, 1], gap="large")
-    with q_col1:
-        st.info("📌 **Scan Kode QRIS**")
-        show_qris_image()
-    with q_col2:
-        st.markdown("### 💬 Konfirmasi Langganan")
-        st.write("Setelah melakukan transfer, klik tombol di bawah untuk mengirim bukti transfer ke Telegram Admin.")
-        tg_msg = f"Halo Admin, saya sudah transfer via QRIS untuk paket BizReceipt AI. Email: {st.session_state['user_email']}"
-        tg_url = f"https://t.me/MasterGenerative_bot?text={urllib.parse.quote(tg_msg)}"
-        st.link_button("✈️ Konfirmasi Pembayaran via Telegram", url=tg_url, type="primary", use_container_width=True)
-
-# --- HALAMAN 4: CS VIRTUAL ---
-elif app_mode == "💬 Tanya CS AI":
-    st.markdown('<p class="main-header">💬 Pusat Layanan Pelanggan</p>', unsafe_allow_html=True)
-    st.markdown("---")
-    for msg in st.session_state["cs_messages"]:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    q_user = st.chat_input("Tanyakan seputar fitur, PPN, LPJ, atau aktivasi paket...")
-    if q_user:
-        st.session_state["cs_messages"].append({"role": "user", "content": q_user})
-        with st.chat_message("user"):
-            st.markdown(q_user)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Mengetik jawaban..."):
-                try:
-                    sys_prompt = (
-                        f"Anda adalah CS BizReceipt AI untuk user {st.session_state['user_email']}. "
-                        "Bantu jawab pertanyaan seputar klaim kas kecil, pembukuan pajak PPN, LPJ kas bon, "
-                        "dan pembayaran via QRIS ke Telegram @MasterGenerative_bot secara ramah dan ringkas."
-                    )
-                    full_in = f"{sys_prompt}\n\nPertanyaan: {q_user}"
-                    resp = call_gemini_api(GEMINI_API_KEY, full_in, is_json=False)
-                    ans = resp.text
-                except Exception as e:
-                    ans = f"Layanan CS sedang sibuk: {e}"
-                st.markdown(ans)
-                st.session_state["cs_messages"].append({"role": "assistant", "content": ans})
+        "1. **Struk Asing (Multi-Currency):** Cukup unggah foto struk dalam valuta apa pun (USD, SGD, dsb.). AI otomatis membaca nominal asli dan mengalikan dengan kurs wajar ke IDR.\n"
+        "2. **Administrasi Petty Cash:** Ubah status pada kolom *Status Klaim* menjadi *Disetujui* atau *Sudah Cair* setelah dana ditransfer ke staf.\n"
+        "3. **Pencatatan Pajak:** Nilai PPN/GST otomatis dipisahkan dari nilai dasar (DPP) untuk kebutuhan rekonsiliasi akuntansi.\n"
+        "4. **LPJ Lapangan:** Masukkan nominal kas bon di bagian atas sebelum mengunggah stru
