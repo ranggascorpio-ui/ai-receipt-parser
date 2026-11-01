@@ -137,22 +137,38 @@ def update_user_quota_in_db(email, new_quota):
 
 def call_gemini_api(api_key, contents, is_json=False):
     genai.configure(api_key=api_key)
+    # Urutan prioritas model: jika salah satu habis kuotanya, otomatis pindah ke bawahnya
     candidates = [
-        "models/gemini-3.8-flash",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
         "gemini-3.8-flash",
-        "models/gemini-3.5-flash",
-        "models/gemini-flash-latest"
+        "gemini-flash-latest"
     ]
     try:
         for m in genai.list_models():
             if "generateContent" in m.supported_generation_methods:
-                if m.name not in candidates and "1.5" not in m.name and "2.5" not in m.name:
-                    candidates.append(m.name)
+                clean_name = m.name.replace("models/", "")
+                if clean_name not in candidates and "flash" in clean_name.lower():
+                    candidates.append(clean_name)
     except Exception:
         pass
 
     cfg = {"response_mime_type": "application/json"} if is_json else None
     last_err = None
+
+    for model_name in candidates:
+        try:
+            model = genai.GenerativeModel(model_name=model_name, generation_config=cfg)
+            return model.generate_content(contents)
+        except Exception as e:
+            last_err = e
+            msg = str(e).lower()
+            # Jika model 404 (tidak ada) ATAU 429 (kuota harian habis), otomatis coba model alternatif berikutnya
+            if any(term in msg for term in ["404", "not found", "no longer available", "429", "quota", "resource_exhausted", "exceeded"]):
+                continue
+            raise e
+    raise last_err
 
     for model_name in candidates:
         try:
