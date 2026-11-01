@@ -137,26 +137,53 @@ def update_user_quota_in_db(email, new_quota):
 
 def call_gemini_api(api_key, contents, is_json=False):
     genai.configure(api_key=api_key)
-    # Urutan prioritas model: jika salah satu habis kuotanya, otomatis pindah ke bawahnya
+    
+    # Daftar model khusus Vision / Gambar yang stabil & mendukung dokumen
     candidates = [
         "gemini-2.5-flash",
         "gemini-2.0-flash",
         "gemini-1.5-flash",
-        "gemini-3.8-flash",
-        "gemini-flash-latest"
+        "gemini-1.5-flash-8b",
+        "gemini-1.5-pro"
     ]
+    
     try:
         for m in genai.list_models():
-            if "generateContent" in m.supported_generation_methods:
-                clean_name = m.name.replace("models/", "")
-                if clean_name not in candidates and "flash" in clean_name.lower():
-                    candidates.append(clean_name)
+            clean_name = m.name.replace("models/", "")
+            # Hanya ambil model yang mendukung gambar, tolak model audio / TTS / embedding
+            if (
+                "generateContent" in m.supported_generation_methods
+                and clean_name not in candidates
+                and "flash" in clean_name.lower()
+                and "tts" not in clean_name.lower()
+                and "audio" not in clean_name.lower()
+                and "embed" not in clean_name.lower()
+            ):
+                candidates.append(clean_name)
     except Exception:
         pass
 
     cfg = {"response_mime_type": "application/json"} if is_json else None
     last_err = None
 
+    for model_name in candidates:
+        try:
+            model = genai.GenerativeModel(model_name=model_name, generation_config=cfg)
+            return model.generate_content(contents)
+        except Exception as e:
+            last_err = e
+            msg = str(e).lower()
+            # Abaikan model jika: kuota habis (429), model tidak ditemukan (404), atau tidak dukung gambar (modality error)
+            skip_triggers = [
+                "404", "not found", "no longer available",
+                "429", "quota", "resource_exhausted", "exceeded",
+                "modality", "image input", "not enabled"
+            ]
+            if any(term in msg for term in skip_triggers):
+                continue
+            raise e
+            
+    raise last_err
     for model_name in candidates:
         try:
             model = genai.GenerativeModel(model_name=model_name, generation_config=cfg)
