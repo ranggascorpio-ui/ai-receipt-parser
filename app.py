@@ -224,7 +224,17 @@ def parse_single_file(u_file, api_key, label_klien_proyek):
         data = data[0]
     elif not isinstance(data, dict):
         data = {}
-
+try:
+                            rows = parse_single_file(u_file, GEMINI_API_KEY, project_name)
+                            if rows and isinstance(rows, list):
+                                st.session_state["itemized_data"].extend(rows)
+                                st.session_state["quota_left"] -= 1
+                                update_user_quota_in_db(st.session_state["user_email"], st.session_state["quota_left"])
+                                success_count += 1
+                        except Exception as e:
+                            notify_admin_error(str(e), context=f"Scan: {u_file.name}")
+                            st.warning(f"Gagal memproses {u_file.name}: {e}")
+                            
     vendor = data.get("nama_vendor") or "-"
     no_struk = data.get("no_struk") or "-"
     tgl = data.get("tanggal") or "-"
