@@ -212,38 +212,73 @@ def call_gemini_api(api_key, contents, is_json=False):
 def parse_single_file(u_file, api_key, label_klien_proyek):
     img = Image.open(u_file)
     resp = call_gemini_api(api_key, [img, PROMPT_RECEIPT], is_json=True)
+    
+    if not resp or not hasattr(resp, "text") or not resp.text:
+        raise ValueError("AI tidak dapat membaca teks pada gambar ini.")
+        
     raw = resp.text.strip().removeprefix("```json").removesuffix("```").strip()
     data = json.loads(raw)
 
-def optimize_image(img, max_dimension=1280, quality=80):
-    """Mengecilkan resolusi gambar struk tanpa merusak keterbacaan teks."""
-    img = img.convert("RGB")
-    width, height = img.size
-    
-    # Resize proporsional jika sisi terpanjang melebihi 1280px
-    if max(width, height) > max_dimension:
-        if width > height:
-            new_w = max_dimension
-            new_h = int(height * (max_dimension / width))
-        else:
-            new_h = max_dimension
-            new_w = int(width * (max_dimension / height))
-        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        
-    buffer = io.BytesIO()
-    img.save(buffer, format="JPEG", quality=quality, optimize=True)
-    buffer.seek(0)
-    return Image.open(buffer)
+    # Antisipasi jika AI mengembalikan list langsung
+    if isinstance(data, list) and len(data) > 0:
+        data = data[0]
+    elif not isinstance(data, dict):
+        data = {}
+
     vendor = data.get("nama_vendor") or "-"
     no_struk = data.get("no_struk") or "-"
     tgl = data.get("tanggal") or "-"
     mata_uang = str(data.get("mata_uang") or "IDR").upper()
     kurs = pd.to_numeric(data.get("kurs_ke_idr", 1), errors="coerce") or 1
     total_ppn_idr = pd.to_numeric(data.get("total_ppn_struk_idr", 0), errors="coerce") or 0
-    items = data.get("items", [])
-    num_items = len(items) if len(items) > 0 else 1
+    
+    # Amankan pengambilan items jika bernilai None atau bukan list
+    items = data.get("items")
+    if not items or not isinstance(items, list):
+        # Fallback otomatis untuk struk tanpa rincian item (struk parkir, bensin, dll.)
+        items = [{
+            "Nama Barang": "Transaksi Nota / Umum",
+            "Kategori": "Operasional",
+            "Kuantitas": "1",
+            "Total Harga Asli": data.get("total_harga_asli", 0) or 0,
+            "Total Harga IDR": data.get("total_harga_idr", 0) or 0
+        }]
 
+    num_items = len(items) if len(items) > 0 else 1
     rows = []
+    
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+            
+        tot_asli = pd.to_numeric(item.get("Total Harga Asli", 0), errors="coerce") or 0
+        tot_idr = pd.to_numeric(item.get("Total Harga IDR", 0), errors="coerce")
+        if pd.isna(tot_idr) or tot_idr == 0:
+            tot_idr = int(round(tot_asli * kurs))
+
+        kategori = item.get("Kategori") or "Lainnya"
+        item_ppn_idr = int(round(total_ppn_idr / num_items)) if total_ppn_idr > 0 else 0
+        dpp_idr = max(0, int(tot_idr) - item_ppn_idr) if item_ppn_idr > 0 else int(tot_idr)
+
+        rows.append({
+            "File Sumber": u_file.name,
+            "Klien / Proyek": label_klien_proyek,
+            "Tanggal": tgl,
+            "Nama Vendor": vendor,
+            "No. Struk": no_struk,
+            "Kategori": kategori,
+            "Nama Barang": item.get("Nama Barang", "-"),
+            "Kuantitas": str(item.get("Kuantitas", "1")),
+            "Valuta": mata_uang,
+            "Nominal Asli": float(tot_asli),
+            "Kurs (IDR)": int(kurs),
+            "DPP (IDR)": int(dpp_idr),
+            "PPN (IDR)": int(item_ppn_idr),
+            "Total (IDR)": int(tot_idr),
+            "Status Klaim": "Pending"
+        })
+        
+    return rows
     for item in items:
         tot_asli = pd.to_numeric(item.get("Total Harga Asli", 0), errors="coerce") or 0
         tot_idr = pd.to_numeric(item.get("Total Harga IDR", 0), errors="coerce")
